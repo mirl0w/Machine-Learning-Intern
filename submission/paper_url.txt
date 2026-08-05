@@ -1,1 +1,1 @@
-PASTE-YOUR-DEPLOYED-PAPER-URL-HERE
+https://mirl0w.github.io/Machine-Learning-Intern/
