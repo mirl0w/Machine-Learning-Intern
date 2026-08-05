@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Content Opportunity Scoring: A Ranked Review System for Declining Pages</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 780px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #222; background: #fdfdfd; }
+  h1 { font-size: 1.8em; margin-bottom: 0.2em; }
+  h2 { font-size: 1.3em; margin-top: 2em; border-bottom: 1px solid #ddd; padding-bottom: 0.3em; }
+  .meta { color: #666; font-size: 0.9em; margin-bottom: 2em; }
+  .abstract { background: #f5f5f0; padding: 20px; border-left: 4px solid #444; margin: 1.5em 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+  th { background: #eee; }
+  code { background: #eee; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+  .limits { background: #fff8ec; padding: 15px 20px; border-left: 4px solid #d9a441; }
+  .credit { color: #555; font-size: 0.9em; margin-top: 3em; padding-top: 1em; border-top: 1px solid #ddd; }
+  a { color: #2255aa; }
+</style>
+</head>
+<body>
+
+<h1>Content Opportunity Scoring: A Ranked Review System for Declining Pages</h1>
+<p class="meta">Mariam Abdelaleem — FlyRank ML Internship, Applied Search Intelligence Track — 2026</p>
+
+<div class="abstract">
+<strong>Abstract.</strong> This work builds a system to rank website content pages by likelihood of search visibility decline, so that content teams with limited review capacity can prioritize which pages to examine first. Using an anonymized 30,000-row slice of real search performance data, I built a transparent hand-written baseline rule, then trained a Decision Tree and Random Forest classifier under a client-holdout validation design to avoid overfitting to individual clients. The Random Forest reached a Precision@50 of 0.72, compared to the baseline's 0.44 — roughly a 1.6x improvement in identifying genuinely declining pages among the top 50 flagged. Results are presented as decision-support evidence for human-reviewed content prioritization, not as proof of causal effect or search-engine ranking factors.
+</div>
+
+<h2>1. Introduction / Problem Statement</h2>
+<p>
+Content teams managing large websites face a simple but costly problem: which pages, out of thousands, are worth reviewing first? Manually auditing every page is infeasible, and a wrong prioritization has real cost — a genuinely declining page that goes unreviewed continues losing visibility silently, while reviewer time spent on healthy pages is time not spent elsewhere. This project builds a ranked review system that scores pages by their likelihood of decline, so a reviewer can focus attention on the highest-value candidates first.
+</p>
+
+<h2>2. Data</h2>
+<p>
+This work uses the FlyRank ML Internship starter dataset: a 30,000-row anonymized slice of real, pseudonymized search and content performance data, filtered to pages with observed search impressions and at least 90 days of content age. The dataset ships only observable signals — real measurements such as impressions, clicks, position, and content age — never FlyRank's internal product decision flags (such as health scores or priority rankings), which were deliberately excluded from the release to prevent circular results.
+</p>
+<p>
+The broader FlyRank internship warehouse (a ~79 million row release covering ~70 clients and ~427,000 content items) was explored during an earlier data-contract exercise to verify schema, grain, and data availability, but the modeling work reported here uses the smaller starter slice.
+</p>
+
+<h2>3. Methodology</h2>
+<p><strong>Label:</strong> a page is labeled "declining" if its recent trend direction is downward. This is a snapshot-based proxy label rather than a validated future-window outcome — a limitation discussed further below.</p>
+<p><strong>Features</strong> (all observable at decision time, before any outcome is known): content age, days since last update, 90-day impressions, average search position, click-through rate, and word count.</p>
+<p><strong>Baseline:</strong> a transparent hand-written rule flagging pages that are simultaneously stale (not updated in 180+ days) and still visible (500+ impressions), or visible with a weak click-through rate (below 0.3).</p>
+<p><strong>Model:</strong> a Decision Tree (max depth 4) and a Random Forest (200 trees), both weighted to handle label imbalance.</p>
+<p><strong>Validation design:</strong> a client-holdout (grouped) split, ensuring pages belonging to the same client never appear in both training and test sets — so the model is evaluated on clients it has never seen, matching real deployment conditions.</p>
+<p><strong>Leakage audit:</strong> all features were confirmed to be knowable before any outcome was observed. A deliberate leakage experiment — feeding a label-derived signal into the model as if it were a normal feature — was performed and showed an artificially inflated, meaningless result, confirming the importance of this check.</p>
+
+<h2>4. Results</h2>
+<p>Precision@K measures how many of the top K ranked pages were genuinely declining. All results below are reported under the honest client-holdout validation split.</p>
+
+<table>
+<tr><th>Method</th><th>Precision@20</th><th>Precision@50</th></tr>
+<tr><td>Baseline (hand-written rule)</td><td>0.45</td><td>0.44</td></tr>
+<tr><td>Decision Tree</td><td>0.55</td><td>0.60</td></tr>
+<tr><td>Random Forest</td><td>0.80</td><td>0.72</td></tr>
+</table>
+
+<p>
+The Random Forest outperformed the baseline at both thresholds, reaching Precision@50 of 0.72 versus the baseline's 0.44 — an observed 1.6x improvement — and Precision@20 of 0.80 versus 0.45, nearly double. This suggests the model is especially effective at identifying the very highest-priority pages, which matters most when review capacity is most limited.
+</p>
+
+<h2>5. Limitations</h2>
+<div class="limits">
+<p>This work does not claim that content refreshes cause traffic recovery — no causal experiment was run, only observational patterns. It does not claim to reflect Google's actual ranking algorithm. Results should not be assumed to generalize beyond this specific 30,000-row slice or its represented clients.</p>
+<p>Validation design measurably affected the result: under a naive random train/test split (ignoring which client each page belonged to), the Decision Tree reached Precision@50 of 0.660. Under the honest client-holdout split, this dropped to 0.600. This gap indicates the naive split was somewhat optimistic — the model was likely picking up some client-specific patterns that don't transfer to genuinely unseen clients. The client-holdout number is the one that should be trusted as a realistic estimate.</p>
+<p>The label itself is a snapshot proxy (current trend direction), not a validated future-window outcome. A stronger next iteration would define decline as a measured drop over a defined future period (e.g., the next 30 days), which this version does not yet implement.</p>
+</div>
+
+<h2>6. Ranked Recommendations</h2>
+<p>Based on model output, pages are mapped into four action categories:</p>
+<ul>
+<li><strong>refresh_content</strong> — stale and still-visible pages; highest priority</li>
+<li><strong>rewrite_title_meta</strong> — visible pages with strong search position but weak click-through rate</li>
+<li><strong>review_priority</strong> — elevated model-flagged risk without one clear cause</li>
+<li><strong>monitor</strong> — low priority, no action required now</li>
+</ul>
+<p>
+Every flagged page requires human review before any content change is made — this system surfaces candidates for review, it does not approve or execute edits automatically. The following should never be automated based on this model alone: publishing content changes, deleting or de-indexing pages, or treating a high score as proof that a refresh will cause recovery.
+</p>
+
+<h2>7. Reproducibility</h2>
+<p>
+All code, notebooks, and this paper's source are available in the public repository:<br>
+<a href="https://github.com/mirl0w/Machine-Learning-Intern" target="_blank">github.com/mirl0w/Machine-Learning-Intern</a>
+</p>
+<p>
+The full modeling workflow is documented in
+<a href="https://github.com/mirl0w/Machine-Learning-Intern/blob/main/work/notebooks/capstone.ipynb" target="_blank">work/notebooks/capstone.ipynb</a>,
+with supporting notebooks for the data contract, baseline scoring, model comparison, and validation audit also in
+<a href="https://github.com/mirl0w/Machine-Learning-Intern/tree/main/work/notebooks" target="_blank">work/notebooks/</a>.
+</p>
+
+<div class="credit">
+<strong>Acknowledgments &amp; Data Credit.</strong> This work was built on the FlyRank ML Internship dataset, part of the FlyRank AI Internship program. Data source and program information: <a href="https://flyrank.ai" target="_blank">flyrank.ai</a>.
+</div>
+
+</body>
+</html>
